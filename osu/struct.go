@@ -19,7 +19,9 @@ type Replay struct {
 	Combo       uint16
 	Perfect     bool
 	Mods        uint32
+	TimeStamp   uint64
 	ModTime     time.Time
+	Path        string
 }
 
 // Beatmap info
