@@ -5,34 +5,34 @@ import (
 	"sort"
 	"time"
 
+	"github.com/bnch/osubinary"
 	"github.com/flesnuk/osu-tools/osu"
-	"github.com/flesnuk/osubinary"
 )
 
 func ReadScoreDB(r io.Reader) []osu.Replay {
-	var str string
-	var nBM uint32
-	var size uint32
+	// TODO: Return errors
+	var nBM, size uint32
 	var ret []osu.Replay
-	osuR := osubinary.New(r)
-	r.Read(make([]byte, 4))
-	osuR.OsuRead(&nBM)
+	or := osu.SafeReader{r, nil}
+
+	or.SkipBytes(4)
+	or.ReadInt(&nBM)
 	for i := uint32(0); i < nBM; i++ {
-		osuR.OsuRead(&str)
-		osuR.OsuRead(&size)
+		or.SkipString()
+		or.ReadInt(&size)
 		for j := uint32(0); j < size; j++ {
-			replay := NewReplay(r)
-			if replay.GameMode == 0 {
+			replay, err := NewReplay(r)
+			if err == nil && replay.GameMode == 0 {
 				ret = append(ret, replay)
 			}
-			r.Read(make([]byte, 12))
+			or.SkipBytes(12)
 		}
 	}
 	sort.Slice(ret, func(i, j int) bool { return ret[i].TimeStamp > ret[j].TimeStamp })
 	return ret
 }
 
-func NewReplay(r io.Reader) osu.Replay {
+func NewReplay(r io.Reader) (osu.Replay, error) {
 	var (
 		GameMode    byte
 		GameVersion uint32
@@ -54,14 +54,18 @@ func NewReplay(r io.Reader) osu.Replay {
 	osuR := osubinary.New(r)
 	str := ""
 
-	osuR.OsuRead(&GameMode, &GameVersion, &BeatmapHash,
+	err := osuR.OsuRead(&GameMode, &GameVersion, &BeatmapHash,
 		&PlayerName, &ReplayHash, &N300, &N100, &N50,
 		&Geki, &Katu, &Misses, &Score,
 		&Combo, &Perfect, &Mods, &str, &TimeStamp)
 
+	if err != nil {
+		return osu.Replay{}, err
+	}
+
 	localLoc, err := time.LoadLocation("Local")
 	if err != nil {
-		panic("Error loading local location")
+		return osu.Replay{}, err
 	}
 
 	return osu.Replay{
@@ -82,7 +86,7 @@ func NewReplay(r io.Reader) osu.Replay {
 		Mods:        Mods,
 		TimeStamp:   TimeStamp,
 		ModTime:     TimeFromTicks(int64(TimeStamp)).In(localLoc),
-	}
+	}, nil
 }
 
 func TimeFromTicks(ticks int64) time.Time {

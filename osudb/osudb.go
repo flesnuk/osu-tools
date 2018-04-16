@@ -3,66 +3,67 @@ package osudb
 import (
 	"io"
 
-	"github.com/bnch/osubinary"
 	"github.com/flesnuk/osu-tools/osu"
+	"github.com/pkg/errors"
 )
 
-var r io.Reader
-
-func bytes(n uint) {
-	r.Read(make([]byte, n))
-}
-
-func GetBeatmaps(re io.Reader) map[string]osu.Beatmap {
-	r = re
-	or := osubinary.New(r)
+// GetBeatmaps returns a map with the beatmap hash being the key
+func GetBeatmaps(r io.Reader) (map[string]osu.Beatmap, error) {
+	or := osu.SafeReader{r, nil}
 
 	var hm = make(map[string]osu.Beatmap)
 	var bmsetid uint32
-	var temps, hash, filename string
-	var length, tmp uint32
-	bytes(17)
-	or.OsuRead(&temps)
-	or.OsuRead(&length)
+	var hash, filename string
+	var length uint32
+	or.SkipBytes(17)
+	or.SkipString()
+	or.ReadInt(&length)
+	if or.Err != nil {
+		return nil, errors.Wrap(or.Err, "Failed reading osu!db header")
+	}
 
 	for i := uint32(0); i < length; i++ {
-		or.OsuRead(&tmp)
+		or.SkipBytes(4)
 		for j := 0; j < 7; j++ {
-			or.OsuRead(&temps)
+			or.SkipString()
 		}
 
-		or.OsuRead(&hash)
-		or.OsuRead(&filename)
-		bytes(39)
+		or.ReadString(&hash)
+		or.ReadString(&filename)
+		or.SkipBytes(39)
 
 		for k := 0; k < 4; k++ {
 			var size uint32
-			or.OsuRead(&size)
-			bytes(14 * uint(size))
+			or.ReadInt(&size)
+			or.SkipBytes(14 * int64(size))
 		}
-		bytes(12)
+		or.SkipBytes(12)
 		var ntimings uint32
-		or.OsuRead(&ntimings)
-		bytes(uint(ntimings) * 17)
-		or.OsuRead(&tmp)
+		or.ReadInt(&ntimings)
+		or.SkipBytes(int64(ntimings) * 17)
+		or.SkipBytes(4)
 
-		or.OsuRead(&bmsetid)
+		or.ReadInt(&bmsetid)
 
 		hm[hash] = osu.Beatmap{
 			ID:       bmsetid,
 			Filename: filename,
 		}
 
-		bytes(15)
-		or.OsuRead(&temps)
-		or.OsuRead(&temps)
-		bytes(2)
-		or.OsuRead(&temps)
-		bytes(10)
-		or.OsuRead(&temps)
-		bytes(18)
+		or.SkipBytes(15)
+		or.SkipString()
+		or.SkipString()
+		or.SkipBytes(2)
+		or.SkipString()
+		or.SkipBytes(10)
+		or.SkipString()
+		or.SkipBytes(18)
+
+		if or.Err != nil {
+			return nil, errors.Wrapf(or.Err, "Failed at reading osu!db entry i: %d", i)
+		}
 
 	}
 
-	return hm
+	return hm, nil
 }
